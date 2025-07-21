@@ -3,6 +3,7 @@
 
 import asyncio
 import re
+import os
 from typing import Dict, List, Optional
 from telethon import TelegramClient, events, Button
 from telethon.tl.types import User
@@ -61,6 +62,48 @@ class BotHandlers:
         # إنشاء معالج البلاغات المباشرة بعد تعيين session_manager
         self.direct_reports_handler = DirectReportsHandlers(self, session_manager)
     
+    async def send_message_with_image(self, event, text: str, buttons=None, image_path: str = "image.png"):
+        """إرسال رسالة مع صورة"""
+        try:
+            # التحقق من وجود الصورة
+            if os.path.exists(image_path):
+                # إرسال الصورة مع النص والأزرار
+                await event.respond(
+                    text,
+                    file=image_path,
+                    buttons=buttons
+                )
+            else:
+                # إرسال النص والأزرار فقط إذا لم توجد الصورة
+                await event.respond(text, buttons=buttons)
+        except Exception as e:
+            # في حالة فشل إرسال الصورة، أرسل النص فقط
+            print(f"❌ خطأ في إرسال الصورة: {e}")
+            await event.respond(text, buttons=buttons)
+    
+    async def edit_message_with_image(self, event, text: str, buttons=None, image_path: str = "image.png"):
+        """تعديل رسالة مع صورة"""
+        try:
+            # التحقق من وجود الصورة
+            if os.path.exists(image_path):
+                # حذف الرسالة القديمة وإرسال جديدة مع الصورة
+                await event.delete()
+                await event.respond(
+                    text,
+                    file=image_path,
+                    buttons=buttons
+                )
+            else:
+                # تعديل النص والأزرار فقط
+                await event.edit(text, buttons=buttons)
+        except Exception as e:
+            # في حالة فشل التعديل، جرب التعديل العادي
+            print(f"❌ خطأ في تعديل الرسالة مع الصورة: {e}")
+            try:
+                await event.edit(text, buttons=buttons)
+            except:
+                await event.respond(text, buttons=buttons)
+    
     def setup_handlers(self):
         """إعداد معالجات الأحداث"""
         
@@ -114,7 +157,9 @@ class BotHandlers:
             [Button.inline("🧠 التحليل الذكي للقناة", "smart_analysis")],
             [Button.inline("🎯 البلاغات المباشرة", "direct_message_reports")],
             [Button.inline("💾 البلاغات المحفوظة", "saved_reports")],
-            [Button.inline("👤 إضافة حساب جديد", "add_session")],
+            [Button.inline("📱 إنشاء حساب جديد", "create_new_session")],
+            [Button.inline("👤 إضافة session string", "add_session")],
+            [Button.inline("🗂️ إدارة الحسابات", "manage_sessions")],
             [Button.inline("📊 لوحة التحكم", "dashboard")],
             [Button.inline("ℹ️ المساعدة", "help")]
         ]
@@ -123,7 +168,12 @@ class BotHandlers:
         if user_manager.can_add_users(user_id):
             buttons.append([Button.inline("👥 إدارة المستخدمين", "manage_users")])
         
-        await event.respond(
+        # إضافة زر إعادة ضبط المصنع للمالك فقط
+        if user_id == config.OWNER_ID:
+            buttons.append([Button.inline("🔄 إعادة ضبط المصنع", "factory_reset")])
+        
+        await self.send_message_with_image(
+            event,
             config.WELCOME_MESSAGE,
             buttons=buttons
         )
@@ -351,6 +401,31 @@ class BotHandlers:
         
         elif data == "direct_reports_examples":
             await self.show_direct_reports_examples(event)
+        
+        # معالجات إدارة الجلسات الجديدة
+        elif data == "create_new_session":
+            await self.start_session_creation(event)
+        
+        elif data == "manage_sessions":
+            await self.show_sessions_management(event)
+        
+        elif data.startswith("delete_session_"):
+            session_id = data.replace("delete_session_", "")
+            await self.confirm_delete_session(event, session_id)
+        
+        elif data.startswith("confirm_delete_session_"):
+            session_id = data.replace("confirm_delete_session_", "")
+            await self.delete_session(event, session_id)
+        
+        elif data.startswith("test_session_"):
+            session_id = data.replace("test_session_", "")
+            await self.test_session(event, session_id)
+        
+        elif data == "factory_reset":
+            await self.show_factory_reset_confirmation(event)
+        
+        elif data == "confirm_factory_reset":
+            await self.perform_factory_reset(event)
     
     async def show_channel_input(self, event):
         """عرض واجهة إدخال القناة"""
@@ -360,41 +435,64 @@ class BotHandlers:
         text = """
 📡 **تحديد القناة المستهدفة**
 
-أرسل رابط أو يوزر القناة التي تريد الإبلاغ عنها
+أرسل رابط أو معرف القناة التي تريد الإبلاغ عنها
 
-**أمثلة صحيحة:**
+**🔗 القنوات العامة:**
 • `@spam_channel`
 • `https://t.me/spam_channel`
 • `spam_channel`
+
+**🔒 القنوات الخاصة:**
+• `https://t.me/+ABC123xyz`
+• `-1001234567890`
+• `1234567890`
+
+**💡 نصائح:**
+• للقنوات الخاصة: انسخ الرابط كاملاً أو المعرف الرقمي
+• للقنوات العامة: يمكن استخدام اليوزر فقط
+• يدعم جميع أنواع القنوات والمجموعات
 
 ⚠️ تأكد من أن القناة تنتهك قوانين تليجرام فعلاً
         """
         
         buttons = [[Button.inline("🔙 العودة للقائمة الرئيسية", "back_to_main")]]
         
-        await event.edit(text, buttons=buttons)
+        await self.edit_message_with_image(event, text, buttons=buttons)
     
     async def show_session_input(self, event):
-        """عرض واجهة إضافة جلسة"""
+        """عرض واجهة إضافة session string"""
         user_id = event.sender_id
+        
+        if not user_manager.can_manage_sessions(user_id):
+            await event.respond("❌ ليس لديك صلاحية لإضافة جلسات")
+            return
+        
         bot_state.update_user_state(user_id, step="waiting_session")
         
         text = """
-👤 **إضافة حساب جديد**
+👤 **إضافة Session String**
 
-أرسل session string للحساب الذي تريد إضافته
+أرسل session string للحساب الذي تريد إضافته:
 
-**كيفية الحصول على session string:**
-1. استخدم سكريبت استخراج الجلسة
-2. انسخ النص الطويل (session string)
-3. أرسله هنا
+**📋 كيفية الحصول على Session String:**
+1. استخدم كود Python مع Telethon
+2. أو استخدم بوت Session String Generator
+3. أو استخدم تطبيق Telegram Desktop
 
-⚠️ احتفظ بـ session strings في مكان آمن
+**⚠️ تحذيرات مهمة:**
+• لا تشارك session string مع أحد
+• تأكد من أن الحساب يخصك
+• Session string يعطي وصول كامل للحساب
+
+**💡 نصيحة:** استخدم "📱 إنشاء حساب جديد" للطريقة الأسهل
         """
         
-        buttons = [[Button.inline("🔙 العودة للقائمة الرئيسية", "back_to_main")]]
+        buttons = [
+            [Button.inline("📱 إنشاء حساب جديد بدلاً", "create_new_session")],
+            [Button.inline("❌ إلغاء", "back_to_main")]
+        ]
         
-        await event.edit(text, buttons=buttons)
+        await self.edit_message_with_image(event, text, buttons=buttons)
     
     async def show_dashboard(self, event):
         """عرض لوحة التحكم"""
@@ -424,7 +522,7 @@ class BotHandlers:
             [Button.inline("🔙 القائمة الرئيسية", "back_to_main")]
         ]
         
-        await event.edit(dashboard_text, buttons=buttons)
+        await self.edit_message_with_image(event, dashboard_text, buttons=buttons)
     
     async def show_report_types(self, event):
         """عرض أنواع البلاغات"""
@@ -528,6 +626,12 @@ class BotHandlers:
             else:
                 await event.respond("❌ معالج البلاغات المباشرة غير متاح")
         
+        elif step == "waiting_report_count":
+            if self.direct_reports_handler:
+                await self.direct_reports_handler.process_report_count_input(event)
+            else:
+                await event.respond("❌ معالج البلاغات المباشرة غير متاح")
+        
         elif step == "waiting_direct_reason":
             if self.direct_reports_handler:
                 await self.direct_reports_handler.process_direct_reason_input(event)
@@ -537,6 +641,16 @@ class BotHandlers:
         # معالجات إدارة المستخدمين
         elif step == "waiting_user_id":
             await self.process_add_user_input(event)
+        
+        # معالجات إنشاء الجلسات الجديدة
+        elif step == "creating_session_phone":
+            await self.process_session_phone_input(event)
+        
+        elif step == "creating_session_code":
+            await self.process_session_code_input(event)
+        
+        elif step == "creating_session_password":
+            await self.process_session_password_input(event)
     
     async def process_channel_input(self, event):
         """معالجة إدخال القناة"""
@@ -547,15 +661,38 @@ class BotHandlers:
         channel = self.clean_channel_input(channel_input)
         
         if not channel:
-            await event.respond("❌ رابط القناة غير صحيح. حاول مرة أخرى.")
+            await event.respond("""
+❌ **تنسيق القناة غير صحيح**
+
+**الأشكال المدعومة:**
+🔗 `@channel_name` أو `channel_name`
+🔗 `https://t.me/channel_name`
+🔒 `https://t.me/+ABC123xyz` (للقنوات الخاصة)
+🔢 `-1001234567890` (معرف رقمي)
+
+حاول مرة أخرى:
+            """)
             return
+        
+        # محاولة التحقق من وجود القناة (اختياري)
+        try:
+            # محاولة الحصول على معلومات القناة للتحقق من وجودها
+            entity = await self.client.get_entity(channel)
+            channel_title = getattr(entity, 'title', channel)
+            channel_type = "قناة" if hasattr(entity, 'broadcast') and entity.broadcast else "مجموعة"
+        except Exception as e:
+            # إذا فشل التحقق، نستمر بدون عرض اسم القناة
+            channel_title = "غير معروف"
+            channel_type = "قناة/مجموعة"
         
         bot_state.update_user_state(user_id, target_channel=channel, step="channel_set")
         
         text = f"""
 ✅ **تم تحديد القناة بنجاح**
 
-القناة المستهدفة: `{channel}`
+📡 **المعرف:** `{channel}`
+📝 **الاسم:** {channel_title}
+📂 **النوع:** {channel_type}
 
 الآن اختر ما تريد فعله:
         """
@@ -569,22 +706,30 @@ class BotHandlers:
         await event.respond(text, buttons=buttons)
     
     async def process_session_input(self, event):
-        """معالجة إدخال الجلسة"""
+        """معالجة إدخال session string"""
+        user_id = event.sender_id
         session_string = event.text.strip()
         
         if len(session_string) < 50:  # session string عادة طويل جداً
             await event.respond("❌ session string غير صحيح. تأكد من نسخه كاملاً.")
             return
         
-        # إضافة الجلسة
-        success, message = reporter.session_manager.add_session(session_string)
+        await event.respond("🔄 جاري إضافة الحساب...")
         
-        await event.respond(message)
-        
-        if success:
-            # العودة للقائمة الرئيسية
-            await asyncio.sleep(2)
-            await self.handle_start(event)
+        # إضافة الجلسة باستخدام النظام الجديد
+        if self.session_manager:
+            success = self.session_manager.add_session_string(session_string)
+            
+            if success:
+                await event.respond("✅ تم إضافة الحساب بنجاح!")
+                bot_state.reset_user_state(user_id)
+                # العودة للقائمة الرئيسية
+                await asyncio.sleep(1)
+                await self.handle_start(event)
+            else:
+                await event.respond("❌ فشل في إضافة الحساب. تأكد من صحة session string.")
+        else:
+            await event.respond("❌ مدير الجلسات غير متاح")
     
     async def process_message_input(self, event):
         """معالجة إدخال رسالة البلاغ"""
@@ -868,21 +1013,54 @@ class BotHandlers:
         # إزالة المسافات
         channel = channel_input.strip()
         
-        # إذا كان رابط كامل
+        # التعامل مع الروابط الخاصة (Private Links)
+        if 'https://t.me/+' in channel or 't.me/+' in channel:
+            # استخراج الجزء بعد +
+            if 'https://t.me/+' in channel:
+                private_hash = channel.split('https://t.me/+')[1]
+            else:
+                private_hash = channel.split('t.me/+')[1]
+            return f"https://t.me/+{private_hash}"
+        
+        # التعامل مع الروابط العادية
         if channel.startswith('https://t.me/'):
             channel = channel.replace('https://t.me/', '')
+        elif channel.startswith('https://telegram.me/'):
+            channel = channel.replace('https://telegram.me/', '')
         elif channel.startswith('t.me/'):
             channel = channel.replace('t.me/', '')
+        elif channel.startswith('telegram.me/'):
+            channel = channel.replace('telegram.me/', '')
         
-        # إضافة @ إذا لم تكن موجودة
-        if not channel.startswith('@'):
-            channel = '@' + channel
+        # التعامل مع معرفات القنوات الرقمية
+        if channel.startswith('-100') or channel.startswith('-'):
+            # معرف قناة رقمي
+            try:
+                int(channel)  # التحقق من أنه رقم صحيح
+                return channel
+            except ValueError:
+                return None
         
-        # التحقق من صحة التنسيق
-        if re.match(r'^@[a-zA-Z][a-zA-Z0-9_]{4,31}$', channel):
+        # التعامل مع الأرقام الموجبة (معرفات المستخدمين/القنوات)
+        if channel.isdigit():
             return channel
         
-        return None
+        # إضافة @ إذا لم تكن موجودة ولم يكن رقماً
+        if not channel.startswith('@') and not channel.isdigit():
+            channel = '@' + channel
+        
+        # التحقق من صحة التنسيق للقنوات العادية
+        if channel.startswith('@'):
+            # قبول أسماء القنوات من 1-32 حرف (أكثر مرونة)
+            if re.match(r'^@[a-zA-Z0-9_]{1,32}$', channel):
+                return channel
+        
+        # إذا كان معرف رقمي بدون @
+        if re.match(r'^-?\d+$', channel):
+            return channel
+        
+        # إذا لم يطابق أي نمط، نعيده كما هو للمحاولة
+        return channel
     
     def get_report_type_name(self, report_type: str) -> str:
         """الحصول على اسم نوع البلاغ"""
@@ -1174,7 +1352,7 @@ class BotHandlers:
         text = """
 🧠 **التحليل الذكي للقناة**
 
-أرسل رابط أو يوزر القناة التي تريد تحليلها:
+أرسل رابط أو معرف القناة التي تريد تحليلها:
 
 **المميزات:**
 • 🔍 كشف المحتوى المخالف تلقائياً
@@ -1182,9 +1360,13 @@ class BotHandlers:
 • 📝 إنشاء بلاغات ذكية مخصصة
 • 🎯 اقتراح أفضل أنواع البلاغات
 
-**أمثلة صحيحة:**
+**🔗 القنوات العامة:**
 • `@spam_channel`
 • `https://t.me/spam_channel`
+
+**🔒 القنوات الخاصة:**
+• `https://t.me/+ABC123xyz`
+• `-1001234567890`
 
 ⚠️ **ملاحظة:** سيتم تحليل آخر 50 رسالة في القناة
         """
@@ -1204,7 +1386,17 @@ class BotHandlers:
         channel = self.clean_channel_input(channel_input)
         
         if not channel:
-            await event.respond("❌ رابط القناة غير صحيح. تأكد من الرابط وحاول مرة أخرى.")
+            await event.respond("""
+❌ **تنسيق القناة غير صحيح**
+
+**الأشكال المدعومة:**
+🔗 `@channel_name` أو `channel_name`
+🔗 `https://t.me/channel_name`
+🔒 `https://t.me/+ABC123xyz` (للقنوات الخاصة)
+🔢 `-1001234567890` (معرف رقمي)
+
+حاول مرة أخرى:
+            """)
             return
         
         # بدء التحليل
@@ -2042,3 +2234,393 @@ t.me/another_bad_channel/51
         ]
         
         await event.respond(text, buttons=buttons)
+    
+    # ==================== دوال إدارة الجلسات الجديدة ====================
+    
+    async def start_session_creation(self, event):
+        """بدء عملية إنشاء جلسة جديدة"""
+        user_id = event.sender_id
+        
+        # التحقق من الصلاحيات
+        if not user_manager.can_manage_sessions(user_id):
+            await event.respond("❌ ليس لديك صلاحية لإنشاء جلسات جديدة")
+            return
+        
+        from session_creator import session_creator
+        
+        # بدء عملية الإنشاء
+        session_id = await session_creator.start_session_creation(user_id, self.client)
+        
+        bot_state.update_user_state(user_id, 
+                                  step="creating_session_phone",
+                                  creating_session_id=session_id)
+        
+        text = """
+📱 **إنشاء حساب جديد**
+
+أرسل رقم الهاتف للحساب الذي تريد إضافته:
+
+**📋 تنسيق الرقم:**
+• `+1234567890` (مع رمز الدولة)
+• `1234567890` (بدون +)
+• `+966 50 123 4567` (مع مسافات)
+
+**🔒 ملاحظات أمنية:**
+• سيتم إرسال كود التحقق لهذا الرقم
+• تأكد من أن لديك وصول للرقم
+• الجلسة ستُحفظ بشكل آمن في البوت
+
+⚠️ **تحذير:** استخدم أرقام تملكها فقط
+        """
+        
+        buttons = [
+            [Button.inline("❌ إلغاء", "back_to_main")]
+        ]
+        
+        await self.send_message_with_image(event, text, buttons=buttons)
+    
+    async def process_session_phone_input(self, event):
+        """معالجة إدخال رقم الهاتف"""
+        user_id = event.sender_id
+        phone = event.text.strip()
+        
+        from session_creator import session_creator
+        
+        await event.respond("📞 جاري إرسال كود التحقق...")
+        
+        success, message = await session_creator.process_phone_number(user_id, phone, self.client)
+        
+        if success:
+            bot_state.update_user_state(user_id, step="creating_session_code")
+            await event.respond(message)
+        else:
+            await event.respond(message)
+    
+    async def process_session_code_input(self, event):
+        """معالجة إدخال كود التحقق"""
+        user_id = event.sender_id
+        code = event.text.strip()
+        
+        from session_creator import session_creator
+        
+        await event.respond("🔐 جاري التحقق من الكود...")
+        
+        success, message = await session_creator.process_verification_code(user_id, code, self.client)
+        
+        if success:
+            if "كلمة مرور" in message:
+                bot_state.update_user_state(user_id, step="creating_session_password")
+            else:
+                bot_state.reset_user_state(user_id)
+                # إعادة تحميل الجلسات
+                if self.session_manager:
+                    self.session_manager.load_all_sessions()
+            
+            await event.respond(message)
+        else:
+            await event.respond(message)
+    
+    async def process_session_password_input(self, event):
+        """معالجة إدخال كلمة مرور التحقق بخطوتين"""
+        user_id = event.sender_id
+        password = event.text.strip()
+        
+        from session_creator import session_creator
+        
+        await event.respond("🔑 جاري التحقق من كلمة المرور...")
+        
+        success, message = await session_creator.process_password(user_id, password, self.client)
+        
+        if success:
+            bot_state.reset_user_state(user_id)
+            # إعادة تحميل الجلسات
+            if self.session_manager:
+                self.session_manager.load_all_sessions()
+        
+        await event.respond(message)
+    
+    async def show_sessions_management(self, event):
+        """عرض لوحة إدارة الجلسات"""
+        user_id = event.sender_id
+        
+        if not user_manager.can_manage_sessions(user_id):
+            await event.respond("❌ ليس لديك صلاحية لإدارة الجلسات")
+            return
+        
+        if not self.session_manager:
+            await event.respond("❌ مدير الجلسات غير متاح")
+            return
+        
+        sessions_info = self.session_manager.get_detailed_sessions_info()
+        
+        if not sessions_info:
+            text = """
+🗂️ **إدارة الحسابات**
+
+📭 **لا توجد حسابات محفوظة**
+
+يمكنك إضافة حسابات جديدة باستخدام:
+• 📱 إنشاء حساب جديد (تسجيل دخول تفاعلي)
+• 👤 إضافة session string (للخبراء)
+            """
+            
+            buttons = [
+                [Button.inline("📱 إنشاء حساب جديد", "create_new_session")],
+                [Button.inline("👤 إضافة session string", "add_session")],
+                [Button.inline("🔙 القائمة الرئيسية", "back_to_main")]
+            ]
+        else:
+            text = f"""
+🗂️ **إدارة الحسابات**
+
+📊 **الإحصائيات:**
+• إجمالي الحسابات: {len(sessions_info)}
+• الحسابات النشطة: {len([s for s in sessions_info if s['status'] == 'active'])}
+
+👥 **قائمة الحسابات:**
+            """
+            
+            buttons = []
+            
+            for i, session in enumerate(sessions_info[:10], 1):  # عرض أول 10 حسابات
+                name = session['name'] or f"مستخدم {session['id'][:8]}"
+                status_emoji = "🟢" if session['status'] == 'active' else "🔴"
+                reports = session['reports_sent']
+                
+                text += f"\n{i}. {status_emoji} **{name}**"
+                if session['username']:
+                    text += f" (@{session['username']})"
+                text += f"\n   📊 البلاغات: {reports} | 📱 {session['phone']}"
+                
+                # أزرار لكل جلسة
+                session_buttons = [
+                    Button.inline(f"🧪 اختبار", f"test_session_{session['id']}"),
+                    Button.inline(f"🗑️ حذف", f"delete_session_{session['id']}")
+                ]
+                buttons.append(session_buttons)
+            
+            if len(sessions_info) > 10:
+                text += f"\n\n... و {len(sessions_info) - 10} حساب آخر"
+            
+            # أزرار إضافية
+            buttons.extend([
+                [Button.inline("📱 إنشاء حساب جديد", "create_new_session")],
+                [Button.inline("👤 إضافة session string", "add_session")],
+                [Button.inline("🔄 تحديث", "manage_sessions")],
+                [Button.inline("🔙 القائمة الرئيسية", "back_to_main")]
+            ])
+        
+        await self.send_message_with_image(event, text, buttons=buttons)
+    
+    async def confirm_delete_session(self, event, session_id: str):
+        """تأكيد حذف جلسة"""
+        user_id = event.sender_id
+        
+        if not user_manager.can_manage_sessions(user_id):
+            await event.respond("❌ ليس لديك صلاحية لحذف الجلسات")
+            return
+        
+        if not self.session_manager:
+            await event.respond("❌ مدير الجلسات غير متاح")
+            return
+        
+        session_info = self.session_manager.get_session_info(session_id)
+        
+        if not session_info:
+            await event.respond("❌ الجلسة غير موجودة")
+            return
+        
+        user_info = session_info.get('user_info', {})
+        name = f"{user_info.get('first_name', '')} {user_info.get('last_name', '')}".strip()
+        username = user_info.get('username', '')
+        
+        text = f"""
+⚠️ **تأكيد حذف الحساب**
+
+هل أنت متأكد من حذف هذا الحساب؟
+
+👤 **الحساب:**
+• الاسم: {name or 'غير محدد'}
+• اليوزر: @{username or 'غير محدد'}
+• الهاتف: {user_info.get('phone', 'غير محدد')}
+• البلاغات المرسلة: {session_info.get('reports_sent', 0)}
+
+❌ **تحذير:** هذا الإجراء لا يمكن التراجع عنه!
+        """
+        
+        buttons = [
+            [Button.inline("✅ نعم، احذف", f"confirm_delete_session_{session_id}")],
+            [Button.inline("❌ إلغاء", "manage_sessions")]
+        ]
+        
+        await event.respond(text, buttons=buttons)
+    
+    async def delete_session(self, event, session_id: str):
+        """حذف جلسة"""
+        user_id = event.sender_id
+        
+        if not user_manager.can_manage_sessions(user_id):
+            await event.respond("❌ ليس لديك صلاحية لحذف الجلسات")
+            return
+        
+        if not self.session_manager:
+            await event.respond("❌ مدير الجلسات غير متاح")
+            return
+        
+        success = self.session_manager.remove_session(session_id)
+        
+        if success:
+            await event.respond("✅ تم حذف الحساب بنجاح")
+        else:
+            await event.respond("❌ فشل في حذف الحساب")
+        
+        # العودة لقائمة الجلسات
+        await self.show_sessions_management(event)
+    
+    async def test_session(self, event, session_id: str):
+        """اختبار جلسة"""
+        user_id = event.sender_id
+        
+        if not user_manager.can_manage_sessions(user_id):
+            await event.respond("❌ ليس لديك صلاحية لاختبار الجلسات")
+            return
+        
+        if not self.session_manager:
+            await event.respond("❌ مدير الجلسات غير متاح")
+            return
+        
+        await event.respond("🧪 جاري اختبار الحساب...")
+        
+        success, message = await self.session_manager.test_session(session_id)
+        
+        await event.respond(message)
+    
+    # ==================== دوال إعادة ضبط المصنع ====================
+    
+    async def show_factory_reset_confirmation(self, event):
+        """عرض تأكيد إعادة ضبط المصنع"""
+        user_id = event.sender_id
+        
+        # التحقق من أن المستخدم هو المالك
+        if user_id != config.OWNER_ID:
+            await event.respond("❌ هذه الميزة متاحة للمالك فقط")
+            return
+        
+        from data_manager import data_manager
+        
+        # الحصول على إحصائيات البيانات التفصيلية
+        sessions_count = data_manager.get_sessions_count()
+        data_size = data_manager.get_data_size()
+        
+        # إحصائيات إضافية
+        users_count = len(user_manager.get_all_users()) if user_manager.users_data.get("users") else 0
+        
+        # التحقق من الملفات القديمة
+        old_files_exist = []
+        import os
+        if os.path.exists("sessions.json"):
+            old_files_exist.append("sessions.json")
+        if os.path.exists("sessions"):
+            old_files_exist.append("مجلد sessions")
+        if os.path.exists("authorized_users.json"):
+            old_files_exist.append("authorized_users.json")
+        
+        old_files_text = f"\n• الملفات القديمة: {', '.join(old_files_exist)}" if old_files_exist else ""
+        
+        text = f"""
+🔄 **إعادة ضبط المصنع**
+
+⚠️ **تحذير خطير!**
+
+هذا الإجراء سيحذف **جميع البيانات** نهائياً:
+
+🗑️ **سيتم حذف:**
+• جميع الحسابات المحفوظة ({sessions_count} حساب)
+• جميع المستخدمين المصرح لهم ({users_count} مستخدم)
+• جميع البلاغات المحفوظة
+• جميع الإحصائيات والسجلات
+• جميع الإعدادات{old_files_text}
+
+💾 **حجم البيانات:** {data_size}
+
+✅ **سيتم الاحتفاظ بـ:**
+• نسخة احتياطية تلقائية
+• إعدادات البوت الأساسية (config.py)
+• صلاحيات المالك
+
+❌ **هذا الإجراء لا يمكن التراجع عنه!**
+
+هل أنت متأكد من المتابعة؟
+        """
+        
+        buttons = [
+            [Button.inline("🔴 نعم، احذف كل شيء", "confirm_factory_reset")],
+            [Button.inline("❌ إلغاء", "back_to_main")]
+        ]
+        
+        await self.send_message_with_image(event, text, buttons=buttons)
+    
+    async def perform_factory_reset(self, event):
+        """تنفيذ إعادة ضبط المصنع"""
+        user_id = event.sender_id
+        
+        # التحقق من أن المستخدم هو المالك
+        if user_id != config.OWNER_ID:
+            await event.respond("❌ هذه الميزة متاحة للمالك فقط")
+            return
+        
+        await event.respond("🔄 جاري إعادة ضبط المصنع...")
+        
+        from data_manager import data_manager
+        
+        # تنفيذ إعادة الضبط
+        success = data_manager.factory_reset()
+        
+        if success:
+            # إعادة تحميل جميع البيانات
+            try:
+                # إعادة تحميل الجلسات
+                if self.session_manager:
+                    self.session_manager.load_all_sessions()
+                
+                # إعادة تحميل المستخدمين
+                user_manager.users_data = user_manager.load_users()
+                
+                # إعادة تحميل البلاغات المحفوظة
+                from saved_reports_manager import saved_reports_manager
+                saved_reports_manager.load_reports()
+                
+                # إعادة تحميل الإحصائيات
+                from reporter import reporter
+                reporter.load_stats()
+                
+                await event.respond("🔄 تم إعادة تحميل جميع البيانات...")
+                
+            except Exception as e:
+                await event.respond(f"⚠️ تم الضبط ولكن حدث خطأ في إعادة التحميل: {e}")
+            
+            text = """
+✅ **تم إعادة ضبط المصنع بنجاح!**
+
+🎉 **تم حذف:**
+• جميع الحسابات المحفوظة
+• جميع المستخدمين المصرح لهم
+• جميع البلاغات المحفوظة
+• جميع الإحصائيات والسجلات
+• جميع الملفات القديمة
+
+💾 **تم إنشاء نسخة احتياطية تلقائياً**
+
+🚀 **البوت جاهز للاستخدام من جديد!**
+
+يمكنك الآن:
+• إضافة حسابات جديدة
+• إضافة مستخدمين جدد
+• بدء استخدام البوت من الصفر
+
+اضغط /start للبدء من جديد
+            """
+            
+            await event.respond(text)
+        else:
+            await event.respond("❌ فشل في إعادة ضبط المصنع. حاول مرة أخرى.")

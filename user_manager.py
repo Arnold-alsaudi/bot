@@ -14,17 +14,17 @@ class UserManager:
     """مدير المستخدمين المصرح لهم"""
     
     def __init__(self):
-        self.users_file = "authorized_users.json"
+        from data_manager import data_manager
+        self.data_manager = data_manager
         self.users_data = self.load_users()
     
     def load_users(self) -> Dict:
         """تحميل بيانات المستخدمين"""
         try:
-            if os.path.exists(self.users_file):
-                with open(self.users_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            else:
-                # إنشاء ملف جديد مع المالك الأساسي
+            users_data = self.data_manager.load_users()
+            
+            if not users_data:
+                # إنشاء بيانات افتراضية مع المالك الأساسي
                 default_data = {
                     "owner_id": config.OWNER_ID,
                     "users": {
@@ -51,6 +51,8 @@ class UserManager:
                 }
                 self.save_users(default_data)
                 return default_data
+            else:
+                return users_data
         except Exception as e:
             print(f"❌ خطأ في تحميل المستخدمين: {e}")
             return {"owner_id": config.OWNER_ID, "users": {}, "total_users": 0}
@@ -59,9 +61,7 @@ class UserManager:
         """حفظ بيانات المستخدمين"""
         try:
             data_to_save = data if data else self.users_data
-            with open(self.users_file, 'w', encoding='utf-8') as f:
-                json.dump(data_to_save, f, ensure_ascii=False, indent=2)
-            return True
+            return self.data_manager.save_users(data_to_save)
         except Exception as e:
             print(f"❌ خطأ في حفظ المستخدمين: {e}")
             return False
@@ -283,6 +283,15 @@ class UserManager:
             "roles_count": roles_count,
             "created_date": self.users_data.get("created_date")
         }
+    
+    def can_manage_sessions(self, user_id: int) -> bool:
+        """التحقق من صلاحية إدارة الجلسات"""
+        if user_id == self.users_data.get("owner_id"):
+            return True
+        
+        user_info = self.users_data["users"].get(str(user_id), {})
+        permissions = user_info.get("permissions", {})
+        return permissions.get("can_manage_sessions", False)
 
 # إنشاء مثيل عام
 user_manager = UserManager()

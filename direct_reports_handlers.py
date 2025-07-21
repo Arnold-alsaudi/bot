@@ -14,7 +14,9 @@ class DirectReportsHandlers:
     def __init__(self, bot, session_manager):
         self.bot = bot
         self.session_manager = session_manager
-        self.bot_state = {}  # ✅ هذا السطر مهم جداً لتفادي الخطأ
+        # استخدام bot_state العام بدلاً من إنشاء واحد منفصل
+        from handlers import bot_state
+        self.bot_state = bot_state
 
     async def start_direct_reports_input(self, event):
         """بدء إدخال روابط الرسائل"""
@@ -60,11 +62,35 @@ t.me/another_channel/50
             await event.respond("❌ لم يتم إدخال أي روابط. حاول مرة أخرى:")
             return
         
+        # رسالة تشخيص
+        await event.respond(f"🔍 جاري تحليل النص المدخل...\n\nالنص: {links_text[:200]}...")
+        
         # استخراج الروابط
         extracted_links = message_reporter.extract_message_links(links_text)
         
+        # رسالة تشخيص
+        await event.respond(f"📊 تم العثور على {len(extracted_links)} رابط")
+        
         if not extracted_links:
-            await event.respond("❌ لم يتم العثور على روابط صحيحة. تأكد من تنسيق الروابط وحاول مرة أخرى:")
+            await event.respond("""
+❌ **لم يتم العثور على روابط صحيحة**
+
+**الأشكال المدعومة:**
+• `https://t.me/channel_name/123`
+• `https://telegram.me/channel_name/123`
+• `t.me/channel_name/123`
+• `@channel_name/123`
+
+**مثال صحيح:**
+```
+https://t.me/spam_channel/100
+https://t.me/spam_channel/101
+t.me/another_channel/50
+@bad_channel/200
+```
+
+حاول مرة أخرى:
+            """)
             return
         
         # التحقق من صحة الروابط
@@ -168,6 +194,9 @@ t.me/another_channel/50
         """معالجة إدخال عدد البلاغات"""
         user_id = event.sender_id
         
+        # رسالة تشخيص
+        await event.respond(f"🔢 تم استلام العدد: {event.text.strip()}")
+        
         try:
             report_count = int(event.text.strip())
             
@@ -178,6 +207,9 @@ t.me/another_channel/50
             if report_count > 10000:
                 await event.respond("❌ العدد يجب أن يكون أقل من 10,000")
                 return
+            
+            # رسالة تشخيص
+            await event.respond(f"✅ تم قبول العدد: {report_count:,}")
             
             self.bot_state.update_user_state(user_id, 
                                         report_count=report_count,

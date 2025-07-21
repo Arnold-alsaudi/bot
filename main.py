@@ -21,6 +21,8 @@ sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import config
 from handlers import BotHandlers
 from session_manager import SessionManager
+from data_manager import data_manager
+from user_manager import user_manager
 
 # إعداد نظام السجلات
 logging.basicConfig(
@@ -67,12 +69,15 @@ class KevinBot:
             bot_info = await self.client.get_me()
             logger.info(f"✅ تم تسجيل الدخول كـ: {bot_info.username}")
             
-            # إعداد مدير الجلسات
+            # إعداد مدير الجلسات الجديد
             session_manager = SessionManager()
             
             # إعداد معالجات الأحداث
             self.handlers = BotHandlers(self.client)
             self.handlers.set_session_manager(session_manager)
+            
+            # تحميل البيانات المحفوظة
+            logger.info("📂 تحميل البيانات المحفوظة...")
             
             logger.info("🚀 تم تهيئة KEVIN BOT بنجاح")
             return True

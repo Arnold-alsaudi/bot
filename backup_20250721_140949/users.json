@@ -1,0 +1,24 @@
+{
+  "owner_id": 7199265775,
+  "users": {
+    "7199265775": {
+      "user_id": 7199265775,
+      "username": "المالك الأساسي",
+      "role": "owner",
+      "added_by": "system",
+      "added_date": "2025-07-21T14:08:35.255143",
+      "permissions": {
+        "can_report": true,
+        "can_add_users": true,
+        "can_remove_users": true,
+        "can_view_stats": true,
+        "can_manage_sessions": true
+      },
+      "status": "active",
+      "reports_sent": 0,
+      "last_activity": "2025-07-21T14:09:49.604792"
+    }
+  },
+  "total_users": 1,
+  "created_date": "2025-07-21T14:08:35.255162"
+}
